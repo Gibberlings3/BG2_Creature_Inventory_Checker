@@ -1,0 +1,312 @@
+BACKUP ~BG2_Creature_Inventory_Checker/backup~ // location to store files for uninstall purposes
+AUTHOR ~webmaster@camagna.net~ // email address displayed if install fails
+
+BEGIN ~BG2 Creature Inventory Checker~
+
+NO_LOG_RECORD // so it can be used as much as wanted
+
+COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
+  READ_LONG  0x2b8 "slot_off" ELSE 0
+  READ_LONG  0x2bc "itm_off" ELSE 0
+  READ_LONG  0x2c0 "itm_num" ELSE 0
+  READ_SHORT ("%slot_off%" + 0x4c) "equipped_weapon"
+  // hack to get source_res into a persistent variable
+  READ_ASCII 0x08 "temp" (8)
+  WRITE_EVALUATED_ASCII 0x08 ~%SOURCE_RES%~ #8
+  READ_ASCII 0x08 "cre_file"
+  WRITE_EVALUATED_ASCII 0x08 "%temp%" #8
+  // tracking variables
+  SET "2hweapon" = 0
+  SET "offhand" = 0
+  SET "bow" = 0
+  SET "arrows" = 0
+  SET "xbow" = 0
+  SET "bolts" = 0
+  SET "sling" = 0
+  SET "bullets" = 0
+  SET "helm" = 0
+  SET "armor" = 0
+  SET "gloves" = 0
+  SET "lring" = 0
+  SET "rring" = 0
+  SET "boots" = 0
+  SET "belt" = 0
+  SET "amulet" = 0
+  SET "weapon1" = 0
+  SET "weapon2" = 0
+  SET "weapon3" = 0
+  SET "weapon4" = 0
+  SET "quiver1" = 0
+  SET "quiver2" = 0
+  SET "quiver3" = 0
+  SET "quiver4" = 0
+  SET "cloak" = 0
+  FOR (index = 0 ; index < 36 ; index = index + 1) BEGIN
+    READ_SHORT ("%slot_off%" + (0x02 * "%index%")) "ref"
+    PATCH_IF ("%ref%" != 0xffff) BEGIN
+      READ_ASCII ("%itm_off%" + (0x14 * "%ref%")) "item"
+      PATCH_IF ("%item%" STRING_CONTAINS_REGEXP "^[Rr][Nn][Dd].+$") BEGIN // ignores random treasure items
+
+      INNER_ACTION BEGIN
+
+        COPY_EXISTING ~%item%.itm~ ~override~
+          READ_SHORT 0x1c "type"
+          PATCH_IF ("%index%" = 0) BEGIN // helm slot
+            SET "helm" = 1
+            PATCH_IF ("%type%" != 7) BEGIN // helm
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid helm %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 1) BEGIN // armor slot
+            SET "armor" = 1
+            PATCH_IF ("%type%" != 2) BEGIN // armor
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid armor: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 2) BEGIN // shield slot
+            SET "offhand" = 1
+            PATCH_IF ("%flags%" BAND 0b00000010 = 0b00000010) BEGIN // 2h check
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Two-handed offhand: %item%.itm~
+            END
+            PATCH_IF ("%type%" != 12) BEGIN // if not shield, check for valid melee abilities
+              SET "legit_offhand" = 0
+              READ_LONG  0x64 "abil_off"
+              READ_SHORT 0x68 "abil_num"
+              FOR (index3 = 0 ; index3 < abil_num ; index3 = index3 + 1) BEGIN
+                READ_BYTE ("%abil_off%" + (0x38 * "%index3%")) "ability"
+                PATCH_IF ("%ability%" = 1) BEGIN // only melee allowed in offhand
+                  SET "legit_offhand" = 1
+                END
+              END
+              PATCH_IF ("%legit_offhand%" = 0) BEGIN
+                PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid offhand item: %item%.itm~
+              END
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 3) BEGIN // glove slot
+            SET "gloves" = 1
+            PATCH_IF ("%type%" != 6) BEGIN // gloves
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid gloves: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF (("%index%" = 4) AND ("%index%" = 5)) BEGIN // ring slot
+            PATCH_IF ("%index%" = 4) BEGIN
+              SET "lring" = 1
+            END ELSE BEGIN
+              SET "rring" = 1
+            END
+            PATCH_IF ("%type%" != 10) BEGIN // rings
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid ring: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 6) BEGIN // amulet slot
+            SET "amulet" = 1
+            PATCH_IF ("%type%" != 1) BEGIN // amulet
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid amulet: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 7) BEGIN // belt slot
+            SET "belt" = 1
+            PATCH_IF ("%type%" != 3) BEGIN // belt
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid belt: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 8) BEGIN // boot slot
+            SET "boots" = 1
+            PATCH_IF ("%type%" != 4) BEGIN // boot
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid boots: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF (("%index%" > 8) AND
+                    ("%index%" < 13)) BEGIN // weapon slots
+            PATCH_IF ("%index%" = 9) BEGIN // first weapon slot
+              SET "weapon1" = 1
+            END ELSE
+            PATCH_IF ("%index%" = 10) BEGIN // second weapon slot
+              SET "weapon2" = 1
+            END ELSE
+            PATCH_IF ("%index%" = 11) BEGIN // third weapon slot
+              SET "weapon3" = 1
+            END ELSE BEGIN
+             SET "weapon4" = 1
+            END
+            READ_LONG  0x64 "abil_off"
+            READ_SHORT 0x68 "abil_num"
+            SET "legit_weapon" = 0
+            FOR (index3 = 0 ; index3 < abil_num ; index3 = index3 + 1) BEGIN
+              READ_BYTE ("%abil_off%" + (0x38 * "%index3%")) "ability"
+              PATCH_IF (("%ability%" = 1) OR ("%ability%" = 2) OR ("%ability%" = 4)) BEGIN // melee, ranged, or launcher
+                SET "legit_weapon" = 1
+                PATCH_IF ("%index%" = 9) BEGIN // first weapon slot
+                  SET "weapon1" = 2
+                END ELSE
+                PATCH_IF ("%index%" = 10) BEGIN // second weapon slot
+                  SET "weapon2" = 2
+                END ELSE
+                PATCH_IF ("%index%" = 11) BEGIN // third weapon slot
+                  SET "weapon3" = 2
+                END ELSE BEGIN
+                  SET "weapon4" = 2
+                END
+                READ_BYTE 0x18 "flags"
+                PATCH_IF ("%flags%" BAND 0b00000010 = 0b00000010) BEGIN // 2h check
+                  SET "2hweapon" = 1
+                END
+                PATCH_IF ("%ability%" = 4) BEGIN // requires ammo
+                  PATCH_IF ("%bow%" = 0) BEGIN
+                    READ_SHORT ("%abil_off%" + 0x32 + (0x38 * "%index3%")) "bow"
+                  END
+                  PATCH_IF ("%xbow%" = 0) BEGIN
+                    READ_SHORT ("%abil_off%" + 0x34 + (0x38 * "%index3%")) "xbow"
+                  END
+                  PATCH_IF ("%sling%" = 0) BEGIN
+                    READ_SHORT ("%abil_off%" + 0x36 + (0x38 * "%index3%")) "sling"
+                  END
+                END
+              END
+            END
+            PATCH_IF ("%legit_weapon%" = 0) BEGIN
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid weapon: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF (("%index%" > 12) AND ("%index%" < 17)) BEGIN // quiver slots
+            PATCH_IF ("%index%" = 13) BEGIN // first quiver slot
+              SET "quiver1" = 1
+            END ELSE
+            PATCH_IF ("%index%" = 14) BEGIN // second quiver slot
+              SET "quiver2" = 1
+            END ELSE
+            PATCH_IF ("%index%" = 15) BEGIN // third quiver slot
+              SET "quiver3" = 1
+            END ELSE BEGIN
+              SET "quiver4" = 1 // fourth quiver slot
+            END
+            PATCH_IF ("%type%" = 5) BEGIN
+              SET "arrows" = 1
+            END ELSE
+            PATCH_IF ("%type%" = 31) BEGIN
+              SET "bolts" = 1
+            END ELSE
+            PATCH_IF ("%type%" = 14) BEGIN
+              SET "bullets" = 1
+            END ELSE BEGIN
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid quiver: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF ("%index%" = 17) BEGIN // cloak
+            SET "cloak" = 1
+            PATCH_IF ("%type%" != 32) BEGIN // cloak
+              PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid cloak: %item%.itm~
+            END
+          END ELSE
+          PATCH_IF (
+                     (
+                       (
+                         ("%type%" =  1) AND  // amulet
+                         ("%amulet%" = 0)
+                       ) OR (
+                         ("%type%" =  2) AND // armor
+                         ("%armor%" = 0)
+                       ) OR (
+                         ("%type%" =  3) AND // belt
+                         ("%belt%" = 0)
+                       ) OR (
+                         ("%type%" =  4) AND // boot
+                         ("%boots%" = 0)
+                       ) OR (
+                         (
+                           ("%type%" =  5) OR // arrows
+                           ("%type%" = 14) OR // bullets
+                           ("%type%" = 31)    // bolts
+                         ) AND (
+                           ("%quiver1%" = 0) OR
+                           ("%quiver2%" = 0) OR
+                           ("%quiver3%" = 0) OR
+                           ("%quiver4%" = 0)
+                         )
+                       ) OR (
+                         ("%type%" =  6) AND // gloves
+                         ("%gloves%" = 0)
+                       ) OR (
+                         ("%type%" =  7) AND // helm
+                         ("%helm%" = 0)
+                       ) OR (
+                         ("%type%" = 10) AND ( // ring
+                           ("%lring%" = 0) OR
+                           ("%rring%" = 0)
+                         )
+                       ) OR (
+                         ("%type%" = 12) AND// shield
+                         ("%offhand%" = 0)
+                       ) OR (
+                         (
+                           ("%type%" = 15) OR // bow
+                           ("%type%" = 16) OR // dagger
+                           ("%type%" = 17) OR // maces
+                           ("%type%" = 18) OR // sling
+                           ("%type%" = 19) OR // short sword
+                           ("%type%" = 20) OR // swords
+                           ("%type%" = 21) OR // hammer
+                           ("%type%" = 22) OR // morning stars
+                           ("%type%" = 23) OR // flail
+                           ("%type%" = 24) OR // darts
+                           ("%type%" = 25) OR // axe
+                           ("%type%" = 26) OR // staff
+                           ("%type%" = 27) OR // xbow
+                           ("%type%" = 28) OR // hand to hand
+                           ("%type%" = 29) OR // Spear
+                           ("%type%" = 30) OR // halberd
+                           ("%type%" = 32) OR // cloak
+                           ("%type%" = 44)    // club
+                         ) AND (
+                           ("%weapon1%" = 0) OR
+                           ("%weapon2%" = 0) OR
+                           ("%weapon3%" = 0) OR
+                           ("%weapon4%" = 0)
+                         )
+                       )
+                     ) AND ("%index%" > 17) // inventory/quick slots
+                   )  BEGIN
+            PATCH_PRINT ~ItemErr in %cre_file%.cre: Equippable items in inventory: %item%.itm~
+          END
+          BUT_ONLY_IF_IT_CHANGES
+
+
+        END
+      END
+    END
+  END
+  PATCH_IF (("%2hweapon%" = 1) AND ("%offhand%" = 1)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Two-hand weapon and offhand equipped~
+  END
+  PATCH_IF (("%bow%" = 1) AND ("%arrows%" = 0)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Bow with no arrows~
+  END ELSE
+  PATCH_IF (("%bow%" = 0) AND ("%arrows%" = 1)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Arrows with no bow~
+  END
+  PATCH_IF (("%xbow%" = 1) AND ("%bolts%" = 0)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Crossbow with no bolts~
+  END ELSE
+  PATCH_IF (("%xbow%" = 0) AND ("%bolts%" = 1)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Bolts with no crossbow~
+  END
+  PATCH_IF (("%sling%" = 1) AND ("%bullets%" = 0)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Sling with no bullets~
+  END ELSE
+  PATCH_IF (("%sling%" = 0) AND ("%bullets%" = 1)) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Bullets with no sling~
+  END
+  PATCH_IF (("%equipped_weapon%" = 0) AND ("%weapon1%" != 2) AND (("%weapon2%" = 2) OR ("%weapon3%" = 2) OR ("%weapon4%" = 2))) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid weapon equipped~
+  END ELSE
+  PATCH_IF (("%equipped_weapon%" = 1) AND ("%weapon2%" != 2) AND (("%weapon1%" = 2) OR ("%weapon3%" = 2) OR ("%weapon4%" = 2))) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid weapon equipped~
+  END ELSE
+  PATCH_IF (("%equipped_weapon%" = 2) AND ("%weapon3%" != 2) AND (("%weapon1%" = 2) OR ("%weapon2%" = 2) OR ("%weapon4%" = 2))) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid weapon equipped~
+  END ELSE
+  PATCH_IF (("%equipped_weapon%" = 3) AND ("%weapon4%" != 2) AND (("%weapon1%" = 2) OR ("%weapon2%" = 2) OR ("%weapon3%" = 2))) BEGIN
+    PATCH_PRINT ~ItemErr in %cre_file%.cre: Invalid weapon equipped~
+  END
+  BUT_ONLY_IF_IT_CHANGES
